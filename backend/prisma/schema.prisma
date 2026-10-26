@@ -1,0 +1,55 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+enum Gender {
+  MALE
+  FEMALE
+}
+model Hiker {
+  id               Int      @id @default(autoincrement())
+  name             String   @unique @db.VarChar(100)
+  address          String   @unique @db.VarChar(100)
+  phone            String   @db.VarChar(20)
+  gender           Gender
+  emergencyContact String   @map("emergency_contact") @db.VarChar(20)
+  status           String   @default("aktif") @db.VarChar(20)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+}
+model Users {
+  id               Int      @id @default(autoincrement())
+  username         String   @db.VarChar(100)
+  email            String   @db.VarChar(100)
+  password         String   @db.Text
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+}
+
+model Position {
+  id          Int      @id @default(autoincrement())
+  deviceId    String   @default("gateway-1") @map("device_id") @db.VarChar(50)
+  counter     Int
+  status      String   @db.VarChar(10)
+  latitude    Float
+  longitude   Float
+  altitude    Float
+  satellites  Int
+  hdop        Float
+  rssi        Int
+  snr         Float
+  receivedAt  DateTime @default(now()) @map("received_at")
+
+  @@unique([deviceId, counter])
+  @@index([receivedAt])
+  @@map("positions")
+}
