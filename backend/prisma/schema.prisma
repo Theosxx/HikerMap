@@ -53,3 +53,11 @@ model Position {
   @@index([receivedAt])
   @@map("positions")
 }
+
+model DeviceMonitorState {
+  deviceId  String   @id @map("device_id") @db.VarChar(50)
+  isOffline Boolean  @default(false) @map("is_offline")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("device_monitor_state")
+}

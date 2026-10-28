@@ -5,6 +5,7 @@ import express from "express";
 import authRoutes from "./routes/auth";
 import hikerRoutes from "./routes/hikers";
 import positionRoutes from "./routes/position";
+import { startDeviceMonitor } from "./services/device-monitor";
 const app = express();
 app.use((req, _res, next) => {
   console.log(`${req.method} ${req.url}`);
@@ -30,4 +31,6 @@ const port = Number(process.env.PORT || 3000);
 
 app.listen(port, "0.0.0.0", () => {
   console.log(`HikerMap API berjalan pada port ${port}`);
+
+  startDeviceMonitor();
 });

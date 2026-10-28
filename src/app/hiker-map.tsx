@@ -1,6 +1,11 @@
 
 import React from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import {
+  Platform,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { WebView } from "react-native-webview";
 
 type HikerMapProps = {
@@ -26,9 +31,12 @@ export default function HikerMap({
   if (!validPosition) {
     return (
       <View style={styles.empty}>
-        <View>
-          <View />
-        </View>
+        <Text style={styles.emptyTitle}>
+          Lokasi belum tersedia
+        </Text>
+        <Text style={styles.emptyText}>
+          Menunggu koordinat GPS valid dari gateway RX.
+        </Text>
       </View>
     );
   }
@@ -40,8 +48,10 @@ export default function HikerMap({
     <!DOCTYPE html>
     <html>
       <head>
-        <meta name="viewport"
-          content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1.0, maximum-scale=1.0"
+        />
         <link
           rel="stylesheet"
           href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -52,7 +62,9 @@ export default function HikerMap({
             height: 100%;
             margin: 0;
             padding: 0;
+            overflow: hidden;
           }
+
           .hiker-marker {
             width: 30px;
             height: 30px;
@@ -66,32 +78,37 @@ export default function HikerMap({
       </head>
       <body>
         <div id="map"></div>
+
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
         <script>
           const lat = ${lat};
           const lon = ${lon};
 
-          const map = L.map('map').setView([lat, lon], 16);
+          const map = L.map("map", {
+            scrollWheelZoom: false,
+            tap: true
+          }).setView([lat, lon], 16);
 
           L.tileLayer(
-            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
             {
               maxZoom: 19,
-              attribution: '&copy; OpenStreetMap contributors'
+              attribution: "&copy; OpenStreetMap contributors"
             }
           ).addTo(map);
 
           const hikerIcon = L.divIcon({
-          className: '',
+            className: "",
             html: '<div class="hiker-marker"></div>',
-            iconSize: [50, 50],
+            iconSize: [30, 30],
             iconAnchor: [15, 15]
           });
 
           L.marker([lat, lon], { icon: hikerIcon })
             .addTo(map)
-            .bindPopup('Lokasi Pendaki')
-            .openPopup();
+            .bindPopup("Lokasi Pendaki");
+
+          setTimeout(() => map.invalidateSize(), 300);
         </script>
       </body>
     </html>
@@ -101,12 +118,14 @@ export default function HikerMap({
     return (
       <View style={styles.container}>
         {React.createElement("iframe", {
-          key: `${lat},${lon}`,
           srcDoc: mapHtml,
           title: "Peta lokasi pendaki",
           width: "100%",
           height: "100%",
-          style: { border: 0, display: "block" },
+          style: {
+            border: 0,
+            display: "block",
+          },
         })}
       </View>
     );
@@ -115,12 +134,21 @@ export default function HikerMap({
   return (
     <View style={styles.container}>
       <WebView
-        key={`${lat},${lon}`}
         source={{ html: mapHtml }}
-        style={{ flex: 1, backgroundColor: "#E4EBE2" }}
+        style={styles.webView}
+        containerStyle={styles.webViewContainer}
         javaScriptEnabled
         domStorageEnabled
         originWhitelist={["*"]}
+        nestedScrollEnabled
+        scrollEnabled={false}
+        overScrollMode="never"
+        setSupportMultipleWindows={false}
+        onShouldStartLoadWithRequest={(request) =>
+          request.url.startsWith("about:") ||
+          request.url.startsWith("data:") ||
+          request.url.startsWith("https://")
+        }
       />
     </View>
   );
@@ -130,12 +158,34 @@ const styles = StyleSheet.create({
   container: {
     width: "100%",
     height: "100%",
+    overflow: "hidden",
+  },
+  webViewContainer: {
+    flex: 1,
+    overflow: "hidden",
+  },
+  webView: {
+    flex: 1,
+    backgroundColor: "#E4EBE2",
   },
   empty: {
     flex: 1,
     minHeight: 200,
     justifyContent: "center",
     alignItems: "center",
+    padding: 20,
     backgroundColor: "#EDF5EE",
+  },
+  emptyTitle: {
+    color: "#193B2A",
+    fontSize: 16,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  emptyText: {
+    color: "#718078",
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: "center",
   },
 });

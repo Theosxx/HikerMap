@@ -29,12 +29,15 @@ router.post("/", async (req: Request, res: Response) => {
   }
 
   const data = parsed.data;
+  const deviceId = "gateway-1";
+  const receivedAt = new Date();
 
   try {
+    // Simpan atau perbarui data posisi.
     const position = await prisma.position.upsert({
       where: {
         deviceId_counter: {
-          deviceId: "gateway-1",
+          deviceId,
           counter: data.counter,
         },
       },
@@ -47,10 +50,26 @@ router.post("/", async (req: Request, res: Response) => {
         hdop: data.hdop,
         rssi: data.rssi,
         snr: data.snr,
+        receivedAt,
       },
       create: {
-        deviceId: "gateway-1",
+        deviceId,
         ...data,
+        receivedAt,
+      },
+    });
+
+    // Tandai perangkat aktif karena paket baru telah diterima.
+    await prisma.deviceMonitorState.upsert({
+      where: {
+        deviceId,
+      },
+      update: {
+        isOffline: false,
+      },
+      create: {
+        deviceId,
+        isOffline: false,
       },
     });
 
@@ -63,33 +82,6 @@ router.post("/", async (req: Request, res: Response) => {
 
     return res.status(500).json({
       message: "Gagal menyimpan posisi ke database",
-    });
-  }
-});
-
-// GET /api/positions/latest
-router.get("/latest", async (_req: Request, res: Response) => {
-  try {
-    const position = await prisma.position.findFirst({
-      where: { deviceId: "gateway-1" },
-      orderBy: { receivedAt: "desc" },
-    });
-
-    if (!position) {
-      return res.status(404).json({
-        message: "Belum ada data posisi",
-      });
-    }
-
-    return res.json({
-      message: "Posisi terbaru berhasil diambil",
-      data: position,
-    });
-  } catch (error) {
-    console.error("Gagal mengambil posisi:", error);
-
-    return res.status(500).json({
-      message: "Gagal mengambil posisi dari database",
     });
   }
 });

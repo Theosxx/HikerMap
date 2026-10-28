@@ -1,0 +1,6 @@
+
+backend/.agents/
+backend/.claude/
+backend/.windsurf/
+backend/.cursor/
+backend/node_modules/

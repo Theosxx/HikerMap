@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import {
   Linking,
@@ -6,7 +7,7 @@ import {
   StatusBar,
   StyleSheet,
   Text,
-  View
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import HikerMap from "./hiker-map";
@@ -25,80 +26,147 @@ type RxPosition = {
 };
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
+console.log("API URL yang digunakan:", API_URL);
+// Ubah jika interval pengiriman LoRa perangkat berbeda.
+const POLL_INTERVAL = 5000;
+const OFFLINE_TIMEOUT = 30000;
 
 export default function HomeScreen() {
   const [position, setPosition] = useState<RxPosition | null>(null);
   const [positionError, setPositionError] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [now, setNow] = useState(Date.now());
 
+  // Ambil posisi terbaru setiap 5 detik.
   useEffect(() => {
     let active = true;
 
-    async function fetchPosition() {
-      try {
-        if (!API_URL) {
-          throw new Error(
-            "EXPO_PUBLIC_API_URL belum dikonfigurasi."
-          );
-        }
-
-        const response = await fetch(
-          `${API_URL}/api/positions/latest`
+    
+  async function fetchPosition() {
+    try {
+      if (!API_URL) {
+        throw new Error(
+          "EXPO_PUBLIC_API_URL belum dikonfigurasi."
         );
+      }
 
-        const result = await response.json();
+      const baseUrl = API_URL.replace(/\/+$/, "");
 
-        if (!response.ok) {
-          throw new Error(
-            result.message || "Gagal mengambil data posisi RX."
-          );
+      const response = await fetch(
+        `${baseUrl}/api/positions/latest`,
+        {
+          headers: {
+            Accept: "application/json",
+          },
         }
+      );
 
-        const data = result.data as RxPosition;
+      // Baca sebagai teks terlebih dahulu agar error HTML
+      // dari server/ngrok bisa dikenali dengan jelas.
+      const responseText = await response.text();
 
-        if (
-          typeof data?.latitude !== "number" ||
-          typeof data?.longitude !== "number"
-        ) {
-          throw new Error(
-            "Format koordinat dari backend tidak valid."
-          );
-        }
+      let result: any;
 
-        if (active) {
-          setPosition(data);
-          setPositionError("");
-        }
-      } catch (error) {
-        if (active) {
-          setPositionError(
-            error instanceof Error
-              ? error.message
-              : "Gagal mengambil data posisi."
-          );
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
+      try {
+        result = JSON.parse(responseText);
+      } catch {
+        const preview = responseText
+          .replace(/\s+/g, " ")
+          .slice(0, 120);
+
+        throw new Error(
+          `Server tidak mengirim JSON (HTTP ${response.status}). ` +
+          `Periksa URL API atau respons ngrok. Respons: ${preview}`
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(
+          result?.message ||
+          `Gagal mengambil posisi (HTTP ${response.status}).`
+        );
+      }
+
+      const data = result?.data as RxPosition | null;
+
+      if (
+        !data ||
+        typeof data.latitude !== "number" ||
+        typeof data.longitude !== "number" ||
+        !data.receivedAt
+      ) {
+        throw new Error(
+          "Respons server tidak berisi data posisi yang valid."
+        );
+      }
+
+      if (active) {
+        setPosition(data);
+        setPositionError("");
+      }
+    } catch (error) {
+      if (active) {
+        setPositionError(
+          error instanceof Error
+            ? error.message
+            : "Gagal mengambil data posisi."
+        );
+      }
+    } finally {
+      if (active) {
+        setLoading(false);
       }
     }
+  }
+
 
     fetchPosition();
 
+    const pollTimer = setInterval(
+      fetchPosition,
+      POLL_INTERVAL
+    );
+
     return () => {
       active = false;
+      clearInterval(pollTimer);
     };
   }, [refreshKey]);
 
+  // Perbarui waktu lokal agar status berubah meskipun
+  // server tidak menerima paket baru.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  // Koordinat valid terakhir. Ini tetap dipakai untuk peta.
   const hasFix =
     position?.status === "FIX" &&
+    Number.isFinite(position.latitude) &&
+    Number.isFinite(position.longitude) &&
     position.latitude >= -90 &&
     position.latitude <= 90 &&
     position.longitude >= -180 &&
     position.longitude <= 180 &&
     (position.latitude !== 0 || position.longitude !== 0);
+
+  // Status aktif ditentukan oleh umur paket terakhir,
+  // bukan hanya status FIX yang tersimpan di database.
+  const receivedTime = position?.receivedAt
+    ? new Date(position.receivedAt).getTime()
+    : NaN;
+
+  const hasRecentPacket =
+    Number.isFinite(receivedTime) &&
+    receivedTime <= now + 5000 &&
+    now - receivedTime < OFFLINE_TIMEOUT;
+
+  const isGpsActive = hasFix && hasRecentPacket;
 
   const formatDate = (value?: string) => {
     if (!value) return "Belum ada data";
@@ -118,7 +186,15 @@ export default function HomeScreen() {
       `&mlon=${position.longitude}` +
       `#map=17/${position.latitude}/${position.longitude}`;
 
-    Linking.openURL(url);
+    Linking.openURL(url).catch(() => {
+      setPositionError("Tidak dapat membuka OpenStreetMap.");
+    });
+  };
+
+  const refreshPosition = () => {
+    if (loading) return;
+    setLoading(true);
+    setRefreshKey((current) => current + 1);
   };
 
   return (
@@ -127,11 +203,13 @@ export default function HomeScreen() {
         barStyle="dark-content"
         backgroundColor="#F5F8F5"
       />
-
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={true}
+        nestedScrollEnabled={true}
+        alwaysBounceVertical={true}
+        keyboardShouldPersistTaps="handled"
       >
         {/* Header */}
         <View style={styles.header}>
@@ -165,7 +243,7 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        {/* Status */}
+        {/* Device status */}
         <View style={styles.statusCard}>
           <View style={styles.statusContent}>
             <Text style={styles.cardTitle}>
@@ -173,18 +251,22 @@ export default function HomeScreen() {
             </Text>
 
             <Text style={styles.mutedText}>
-              {loading
+              {loading && !position
                 ? "Menghubungkan ke server..."
-                : position
-                  ? `Status GPS: ${position.status}`
-                  : positionError || "Menunggu data dari gateway RX"}
+                : !position
+                  ? positionError || "Menunggu data dari gateway RX"
+                  : isGpsActive
+                    ? "Paket GPS terbaru diterima"
+                    : position.status === "NOFIX" && hasRecentPacket
+                      ? "Perangkat aktif, GPS belum mendapatkan fix"
+                      : "Tidak ada paket GPS terbaru"}
             </Text>
           </View>
 
           <View
             style={[
               styles.statusBadge,
-              hasFix
+              isGpsActive
                 ? styles.statusOnline
                 : styles.statusWaiting,
             ]}
@@ -192,32 +274,34 @@ export default function HomeScreen() {
             <Text
               style={[
                 styles.statusBadgeText,
-                hasFix
+                isGpsActive
                   ? styles.statusOnlineText
                   : styles.statusWaitingText,
               ]}
             >
-              {hasFix ? "GPS Aktif" : "Menunggu"}
+              {isGpsActive
+                ? "GPS Aktif"
+                : hasRecentPacket && position?.status === "NOFIX"
+                  ? "GPS No Fix"
+                  : "Tidak Aktif"}
             </Text>
           </View>
         </View>
+
+        {/* Refresh */}
         <Pressable
           style={[
             styles.refreshButton,
             loading && styles.refreshButtonDisabled,
           ]}
-          onPress={() => {
-            if (loading) return;
-
-            setLoading(true);
-            setRefreshKey((current) => current + 1);
-          }}
+          onPress={refreshPosition}
           disabled={loading}
         >
           <Text style={styles.refreshButtonText}>
             {loading ? "Memuat data..." : "↻  Refresh Posisi"}
           </Text>
-        </Pressable>      
+        </Pressable>
+
         {/* Map */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>
@@ -231,21 +315,24 @@ export default function HomeScreen() {
 
         <View style={styles.mapCard}>
           <HikerMap
-            latitude={
-              hasFix && position ? position.latitude : null
-            }
-            longitude={
-              hasFix && position ? position.longitude : null
-            }
+            latitude={hasFix && position ? position.latitude : null}
+            longitude={hasFix && position ? position.longitude : null}
           />
         </View>
 
         {!hasFix && (
           <Text style={styles.mapNote}>
             {position?.status === "NOFIX"
-              ? "Gateway RX menerima data, tetapi GPS belum mendapatkan fix."
+              ? "Perangkat mengirim data, tetapi GPS belum mendapatkan fix."
               : positionError ||
-                "Menunggu koordinat GPS valid dari gateway RX."}
+                "Belum tersedia koordinat GPS valid."}
+          </Text>
+        )}
+
+        {hasFix && !isGpsActive && (
+          <Text style={styles.mapNote}>
+            Perangkat tidak aktif. Peta menampilkan lokasi
+            valid terakhir yang tersimpan.
           </Text>
         )}
 
@@ -310,7 +397,7 @@ export default function HomeScreen() {
           />
         </View>
 
-        {/* LoRa communication metrics */}
+        {/* LoRa metrics */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>
             Kualitas Komunikasi
@@ -376,9 +463,7 @@ function InfoRow({
   return (
     <View style={styles.infoRow}>
       <View style={styles.coordinateIcon}>
-        <Text style={styles.coordinateIconText}>
-          {icon}
-        </Text>
+        <Text style={styles.coordinateIconText}>{icon}</Text>
       </View>
 
       <View style={styles.coordinateContent}>
@@ -413,16 +498,14 @@ function MetricCard({
       </View>
 
       <Text style={styles.metricCaption}>
-        {value !== undefined
-          ? "Data dari RX"
-          : "Belum ada data"}
+        {value !== undefined ? "Data dari RX" : "Belum ada data"}
       </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-    refreshButton: {
+  refreshButton: {
     marginTop: 12,
     backgroundColor: "#166534",
     borderRadius: 12,
@@ -430,11 +513,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     alignItems: "center",
   },
-
   refreshButtonDisabled: {
     opacity: 0.6,
   },
-
   refreshButtonText: {
     color: "#FFFFFF",
     fontSize: 13,
@@ -448,8 +529,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    padding: 20,
-    paddingBottom: 36,
+     flexGrow: 1,
+      padding: 20,
+      paddingBottom: 48,
   },
   header: {
     flexDirection: "row",
