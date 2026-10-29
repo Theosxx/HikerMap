@@ -18,6 +18,7 @@ const positionSchema = z.object({
 });
 
 // POST /api/positions
+// Menerima dan menyimpan data GPS dan LoRa.
 router.post("/", async (req: Request, res: Response) => {
   const parsed = positionSchema.safeParse(req.body);
 
@@ -33,7 +34,6 @@ router.post("/", async (req: Request, res: Response) => {
   const receivedAt = new Date();
 
   try {
-    // Simpan atau perbarui data posisi.
     const position = await prisma.position.upsert({
       where: {
         deviceId_counter: {
@@ -59,14 +59,10 @@ router.post("/", async (req: Request, res: Response) => {
       },
     });
 
-    // Tandai perangkat aktif karena paket baru telah diterima.
+    // Tandai perangkat aktif setelah paket diterima.
     await prisma.deviceMonitorState.upsert({
-      where: {
-        deviceId,
-      },
-      update: {
-        isOffline: false,
-      },
+      where: { deviceId },
+      update: { isOffline: false },
       create: {
         deviceId,
         isOffline: false,
@@ -82,6 +78,65 @@ router.post("/", async (req: Request, res: Response) => {
 
     return res.status(500).json({
       message: "Gagal menyimpan posisi ke database",
+    });
+  }
+});
+
+// GET /api/positions
+// Mengambil riwayat maksimal 100 posisi.
+router.get("/", async (_req: Request, res: Response) => {
+  try {
+    const positions = await prisma.position.findMany({
+      where: {
+        deviceId: "gateway-1",
+      },
+      orderBy: {
+        receivedAt: "desc",
+      },
+      take: 100,
+    });
+
+    return res.status(200).json({
+      message: "Data posisi berhasil diambil",
+      data: positions,
+    });
+  } catch (error) {
+    console.error("Gagal mengambil riwayat posisi:", error);
+
+    return res.status(500).json({
+      message: "Gagal mengambil data posisi",
+    });
+  }
+});
+
+// GET /api/positions/latest
+// Mengambil satu posisi terbaru.
+router.get("/latest", async (_req: Request, res: Response) => {
+  try {
+    const position = await prisma.position.findFirst({
+      where: {
+        deviceId: "gateway-1",
+      },
+      orderBy: {
+        receivedAt: "desc",
+      },
+    });
+
+    if (!position) {
+      return res.status(404).json({
+        message: "Belum ada data posisi",
+      });
+    }
+
+    return res.status(200).json({
+      message: "Posisi terbaru berhasil diambil",
+      data: position,
+    });
+  } catch (error) {
+    console.error("Gagal mengambil posisi terbaru:", error);
+
+    return res.status(500).json({
+      message: "Gagal mengambil posisi dari database",
     });
   }
 });
